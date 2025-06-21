@@ -20,7 +20,7 @@ module csr
         output satp_t      satp,
         output u2          mode,
         input  memory_data_t dataM,
-        input u1           trint, swint, exint,
+        input u1           trint, swint, exint, amo,
         output u1           interrupt
 );
 
@@ -53,7 +53,7 @@ module csr
         privilegeMode_nxt = privilegeMode;
         dataC_nxt = dataC;
 
-        if(interrupt || dataM.store_misaligned || dataM.load_misaligned || dataM.ctl.address_not_aligned == 1'b1 || dataM.ctl.ecall == 1'b1 || (dataM.pc_instr.pc != 0 && dataM.ctl.address_error == 1'b1))begin
+        if((interrupt || dataM.store_misaligned || dataM.load_misaligned || dataM.ctl.address_not_aligned == 1'b1 || dataM.ctl.ecall == 1'b1 || (dataM.pc_instr.pc != 0 && dataM.ctl.address_error == 1'b1)) && !amo)begin
             if(dataM.ctl.ecall == 1'b1)begin
                 dataC_nxt.mcause = {{60{1'b0}}, 4'b1000};
                 dataC_nxt.mepc = dataM.pc_instr.pc;

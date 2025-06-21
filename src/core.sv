@@ -53,6 +53,7 @@ module core import common::*;
 	u1 stallpc;
 	u1 memeory_stall, finish;
 	u1 interrupt;
+	u1 amo;
 	
 	assign stallpc = ~finish_pc;
 	assign current_pc = dataM.pc_instr.pc != 0 ? dataM.pc_instr.pc : 
@@ -160,7 +161,8 @@ module core import common::*;
 		.swint(swint),
 		.exint(exint),
 		.current_pc(current_pc),
-		.interrupt(interrupt)
+		.interrupt(interrupt),
+		.amo(amo)
 	);
 
 	always_ff @(posedge clk) begin
@@ -233,7 +235,7 @@ module core import common::*;
 		.finish(finish)
 	);
 
-	assign memeory_stall = dreq.valid && ~finish;
+	assign memeory_stall = ~finish;
 	
 
 	always_ff @(posedge clk) begin
@@ -244,7 +246,8 @@ module core import common::*;
 		end
 	end
 
-	assign dataCF_nxt.branch = interrupt || dataM.store_misaligned || dataM.load_misaligned || dataM.ctl.csrwrite || dataM.ctl.mret || dataM.ctl.ecall || (dataM.pc_instr.pc != 0 && dataM.ctl.address_error) || dataM.ctl.address_not_aligned;
+	assign amo = dataM.ctl.amo && dataE.ctl.amo;
+	assign dataCF_nxt.branch = !amo && (interrupt || dataM.store_misaligned || dataM.load_misaligned || dataM.ctl.csrwrite || dataM.ctl.mret || dataM.ctl.ecall || (dataM.pc_instr.pc != 0 && dataM.ctl.address_error) || dataM.ctl.address_not_aligned);
 	always_comb begin
 		if(interrupt || dataM.store_misaligned || dataM.load_misaligned || dataM.ctl.ecall || dataM.ctl.address_error || dataM.ctl.address_not_aligned)begin
 			dataCF_nxt.pcplus4 = mtvec;
@@ -271,9 +274,7 @@ module core import common::*;
     always_ff @(posedge clk)begin
         if(print_cnt[24] == 1)begin // 每隔固定的时间输出结果
             $display("total_branch:%.2f ", total_branch);
-			$display("total_branch1:%.2f ", total_branch1);
 			$display("succ_branch:%.2f ", succ_branch);
-			$display("succ_branch1:%.2f ", succ_branch1);
 			$display("branch success:%.2f%%", (succ_branch/total_branch)*100);
 			print_cnt <= '0;	
         end else begin
@@ -287,13 +288,13 @@ module core import common::*;
 			end
 		end
 
-		if(dataM.ctl.branchorjump) begin
-			total_branch1 <= total_branch1 + 1;
-		end
+		// if(dataM.ctl.branchorjump) begin
+		// 	total_branch1 <= total_branch1 + 1;
+		// end
 
-		if(~(memeory_stall || busy) && false_branch == 2'b11) begin
-			succ_branch1 <= succ_branch1 + 1; // 分支指令方向预测正确
-		end
+		// if(~(memeory_stall || busy) && false_branch == 2'b11) begin
+		// 	succ_branch1 <= succ_branch1 + 1; // 分支指令方向预测正确
+		// end
 
 	end
 

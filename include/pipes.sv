@@ -86,6 +86,19 @@ parameter F3_CSRRW = 3'b001;
 parameter F3_CSRRWI = 3'b101;
 parameter F3_MRET = 3'b000;
 
+parameter F7_AMO = 7'b0101111;
+parameter F5_AMOSWAP = 5'b00001;
+parameter F5_AMOADD = 5'b00000;
+parameter F5_AMOXOR = 5'b00100;
+parameter F5_AMOAND = 5'b01100;
+parameter F5_AMOOR = 5'b01000;
+parameter F5_AMOMIN = 5'b10000;
+parameter F5_AMOMAX = 5'b10100;
+parameter F5_AMOMINU = 5'b11000;
+parameter F5_AMOMAXU = 5'b11100;
+parameter F5_LRW = 5'b00010;
+parameter F5_SC = 5'b00011;
+
 
 /* define pipeline structure here */
 
@@ -100,7 +113,8 @@ typedef enum logic [5:0]{
 
 typedef enum logic [4:0]{
     ALU_ADD, ALU_SUB, ALU_AND, ALU_OR, ALU_XOR, ALU_SLL, ALU_SRL, ALU_SRA, ALU_SLLW, ALU_SRAW, ALU_SRLW,
-    ALU_AND_NEG, ALU_MUL, ALU_DIV, ALU_REM
+    ALU_AND_NEG, ALU_MUL, ALU_DIV, ALU_REM, 
+    ALU_MIN, ALU_MAX, ALU_MINU, ALU_MAXU, ALU_SWAP
 } alufunc_t;
 
 typedef struct packed {
@@ -129,6 +143,8 @@ typedef struct packed {
     u1 address_error; // 地址错误
     u1 address_not_aligned; // 地址未对齐
     u1 branchorjump;  // 分支或跳转指令
+    u1 amo;          // 原子操作指令
+    u1 lrw, sc; // lrw, sc指令
 
     msize_t size;   // 内存写入的大小
 
@@ -152,7 +168,7 @@ typedef struct packed {
 } decode_data_t;
 
 typedef struct packed {
-    word_t aluout, memwrite_data, csrout;
+    word_t aluout, memwrite_data, csrout, srca;
     satp_t satp;
     control_t ctl;
     creg_addr_t dst;

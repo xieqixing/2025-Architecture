@@ -21,6 +21,7 @@ module decoder
     wire [6:0] f7 = raw_instr[6:0];
     wire [2:0] f3 = raw_instr[14:12];
 
+
     always_comb begin
         ctl = '0;
 
@@ -467,6 +468,70 @@ module decoder
                         
                     end
                 endcase
+            end
+
+            F7_AMO: begin
+                ctl.op = R;
+                ctl.regwrite = 1'b1;
+                ctl.memread = 1'b1;
+                ctl.immextend = 1'b1;
+                ctl.amo = 1'b1;
+                ctl.size = MSIZE4;
+                ctl.memwrite = 1'b1;
+
+                unique case(raw_instr[31:27])
+                    F5_AMOSWAP: begin
+                        ctl.alufunc = ALU_SWAP;
+                    end
+                    
+                    F5_AMOADD: begin
+                        ctl.alufunc = ALU_ADD;
+                    end
+
+                    F5_AMOXOR: begin
+                        ctl.alufunc = ALU_XOR;
+                    end
+
+                    F5_AMOAND: begin
+                        ctl.alufunc = ALU_AND;
+                    end
+
+                    F5_AMOOR: begin
+                        ctl.alufunc = ALU_OR;
+                    end
+
+                    F5_AMOMIN: begin
+                        ctl.alufunc = ALU_MIN;
+                    end
+
+                    F5_AMOMAX: begin
+                        ctl.alufunc = ALU_MAX;
+                    end
+
+                    F5_AMOMINU: begin
+                        ctl.alufunc = ALU_MINU;
+                    end
+
+                    F5_AMOMAXU: begin
+                        ctl.alufunc = ALU_MAXU;
+                    end
+
+                    F5_LRW: begin
+                        ctl.memwrite = 1'b0;
+                        ctl.memextend = 1'b1;
+                        ctl.lrw = 1'b1;
+                    end
+
+                    F5_SC: begin
+                        ctl.memread = 1'b0;
+                        ctl.sc = 1'b1;
+                    end
+
+                    default: begin
+                        
+                    end
+                endcase
+                
             end
 
 

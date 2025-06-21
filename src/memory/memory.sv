@@ -5,6 +5,7 @@
 `include "include/common.sv"
 `include "include/pipes.sv"
 `include "include/csr.sv"
+`include "src/memory/reservation.sv"
 `else
 
 `endif
@@ -29,9 +30,11 @@ module memory
 
 
     // write memory
-    word_t write_data;
+    word_t write_data, aluout;
     u8 strobe;
+    u1 block, reservation_set;
 
+    assign aluout = dataE.ctl.amo ? dataE.srca : dataE.aluout;
     assign write_data = dataE.memwrite_data;
     always_comb begin
         if(dataE.ctl.memwrite) begin
@@ -48,6 +51,15 @@ module memory
         end
     end
 
+    reservation reservation(
+        .clk(clk),
+        .reset(reset),
+        .write_data(write_data),
+        .write_address(aluout),
+        .ctl(dataE.ctl),
+        .reservation_set(reservation_set)
+    );
+
     // state machine
     word_t raw_memdata, MMU_data, MMU_data_nxt;
     u3 state;
@@ -63,7 +75,11 @@ module memory
                     if(dataE_nxt.privilegeMode == 2'b00  && satp[63:60] == 4'b1000) begin
                         state <= 3'b001;
                     end else begin
-                        state <= 3'b100;
+                        if(dataE.ctl.sc && reservation_set) begin
+                            state <= 3'b000;
+                        end else begin
+                            state <= 3'b100;
+                        end
                     end
                 end else begin
                     state <= 3'b000;
@@ -96,9 +112,28 @@ module memory
 
             3'b100: begin
                 if(dresp.data_ok) begin
-                    state <= 3'b000;
+                    if(dataE.ctl.lrw || dataE.ctl.sc) begin
+                        state <= 3'b000;
+                    end else if(dataE.ctl.amo == 1'b1) begin
+                        state <= 3'b101;
+                    end else begin
+                        state <= 3'b000;
+                    end
+                    
                 end else begin
                     state <= 3'b100;
+                end
+            end
+
+            3'b101: begin
+                state <= 3'b110; 
+            end
+
+            3'b110: begin
+                if(dresp.data_ok) begin
+                    state <= 3'b000;
+                end else begin
+                    state <= 3'b110;
                 end
             end
 
@@ -122,6 +157,7 @@ module memory
                 dreq.strobe = 0;
                 finish = 1'b1;
                 start = 1'b0;
+                block = 1'b0;
                 
             end
 
@@ -133,6 +169,7 @@ module memory
                 dreq.strobe = 8'b0;
                 finish = 1'b0;
                 start = ~dresp.data_ok;
+                block = 1'b0;
             end
 
             3'b010: begin
@@ -143,6 +180,7 @@ module memory
                 dreq.strobe = 8'b0;
                 finish = 1'b0;
                 start = ~dresp.data_ok;
+                block = 1'b0;
             end
 
             3'b011: begin
@@ -153,17 +191,19 @@ module memory
                 dreq.strobe = 8'b0;
                 finish = 1'b0;
                 start = ~dresp.data_ok;
+                block = 1'b0;
             end
 
             3'b100: begin
                 if(dataE_nxt.privilegeMode == 2'b11)begin
                     dreq.valid = 1'b1;
-                    dreq.addr = dataE.aluout;
+                    dreq.addr = aluout;
                     dreq.size = dataE.ctl.size;
-                    dreq.data = write_data << (dataE.aluout[2:0] * 8);
-                    dreq.strobe = strobe << dataE.aluout[2:0];
-                    finish = dresp.data_ok;
+                    dreq.data = write_data << (aluout[2:0] * 8);
+                    dreq.strobe = (dataE.ctl.amo && !dataE.ctl.sc) ? 8'b0 : strobe << aluout[2:0];
+                    finish = (dataE.ctl.amo && !dataE.ctl.lrw && !dataE.ctl.sc) ? 1'b0 : dresp.data_ok;
                     start = ~dresp.data_ok;
+                    block = 1'b0;
                 end else begin
                     
                     dreq.valid = 1'b1;
@@ -173,7 +213,30 @@ module memory
                     dreq.strobe = strobe << dataE.aluout[2:0];
                     finish = dresp.data_ok;
                     start = ~dresp.data_ok;
+                    block = 1'b0;
                 end
+            end
+
+            3'b101: begin
+                dreq.valid = 1'b0;
+                dreq.addr = 0;
+                dreq.size = MSIZE8;
+                dreq.data = 0;
+                dreq.strobe = 0;
+                finish = 1'b0;
+                start = 1'b0;
+                block = 1'b1;
+            end
+
+            3'b110: begin
+                dreq.valid = 1'b1;
+                dreq.addr = aluout;
+                dreq.size = dataE.ctl.size;
+                dreq.data = amo_result << (aluout[2:0] * 8);
+                dreq.strobe = strobe << aluout[2:0];
+                finish = dresp.data_ok;
+                start = ~dresp.data_ok;
+                block = 1'b1;
             end
 
 
@@ -185,6 +248,7 @@ module memory
                 dreq.strobe = 0;
                 finish = 1'b1;
                 start = 1'b0;
+                block = 1'b0;
             end     
         endcase    
     end
@@ -197,7 +261,7 @@ module memory
 
     word_t memdata, processed_data, address;
     assign address = dreq.addr;
-    assign raw_memdata = dresp.data;
+    //assign raw_memdata = dresp.data;
     assign MMU_data_nxt = dresp.data;
 
     always_ff @(posedge clk) begin
@@ -213,6 +277,12 @@ module memory
     //assign extend = dataE.ctl.memread && dataE.ctl.memextend;
 
     always_comb begin
+       if(reset) begin
+            raw_memdata = 0;
+       end else if(block == 1'b0) begin
+            raw_memdata = dresp.data;
+       end
+
         memdata = raw_memdata >> (dataE.aluout[2:0] * 8);
 
         if(dataE.ctl.memread)begin
@@ -295,8 +365,24 @@ module memory
         end else dataM.store_misaligned = 1'b0;
     end
 
+    word_t amo_result;
+    always_ff @(posedge clk) begin
+        case(dataE.ctl.alufunc)
+            ALU_ADD: amo_result <= processed_data + write_data;
+            ALU_OR: amo_result <= processed_data | write_data;
+            ALU_AND: amo_result <= processed_data & write_data;
+            ALU_XOR: amo_result <= processed_data ^ write_data;
+            ALU_SWAP: amo_result <= write_data;
+            ALU_MIN: amo_result <= ($signed(processed_data) < $signed(write_data)) ? processed_data : write_data;
+            ALU_MAX: amo_result <= ($signed(processed_data) > $signed(write_data)) ? processed_data : write_data;
+            ALU_MINU: amo_result <= (processed_data < write_data) ? processed_data : write_data;
+            ALU_MAXU: amo_result <= (processed_data > write_data) ? processed_data : write_data;
+            default: amo_result <= 0;
+        endcase
+    end
 
-    assign dataM.memout = dataE.ctl.memread ? processed_data : dataE.aluout;
+    assign dataM.memout = dataE.ctl.sc ? (reservation_set ? {63'b0, 1'b1} : 64'b0) :
+                          dataE.ctl.memread ? processed_data : dataE.aluout;
     assign dataM.memaddr = dataE.aluout;
     assign dataM.csrout = dataE.csrout;
     assign dataM.csr_addr = dataE.csr_addr;

@@ -107,6 +107,8 @@ module execute
             aluout = dataD.srccsr;
         end else if(dataD.ctl.mul_div)begin
             aluout = _c;
+        end else if (dataD.ctl.amo) begin
+            aluout = alusrca;
         end else begin
             aluout = c;
         end
@@ -128,6 +130,7 @@ module execute
     assign dataE_nxt.csr_addr = dataD.csr_addr;
     assign dataE_nxt.csrout = dataD.ctl.csrout ? alusrca : c;
     assign dataE_nxt.privilegeMode = dataD.privilegeMode;
+    assign dataE_nxt.srca = dataD.srca;
 
     branch branch(
         .dataD(dataD),
